@@ -38,9 +38,13 @@ public class StockQueueListener : IAsyncDisposable
 
         _connection = await factory.CreateConnectionAsync();
         _channel = await _connection.CreateChannelAsync();
+        // Use a durable queue to avoid server-side features that may be
+        // restricted in newer RabbitMQ versions (transient/non-exclusive
+        // queues are deprecated). Durable queue persists across broker
+        // restarts and aligns with publisher DeliveryMode.Persistent.
         await _channel.QueueDeclareAsync(
             queue: _options.QueueName,
-            durable: false,
+            durable: true,
             exclusive: false,
             autoDelete: false);
 
