@@ -1,0 +1,10 @@
+﻿bin/
+obj/
+*.user
+.vs/
+packages/
+*.suo
+publish/
+
+# generated per-build, never committed (Part 6 explains why)
+src/StockPipeline.Web/wwwroot/build-info.json

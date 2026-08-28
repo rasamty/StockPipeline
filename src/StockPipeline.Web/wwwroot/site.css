@@ -1,0 +1,67 @@
+:root {
+  --navy: #1f3a5f;
+  --raw: #1f77b4;
+  --processed: #d62728;
+  --dev: #2e7d32;
+  --qa: #b8860b;
+  --uat: #8e44ad;
+  --prod: #a01040;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: Segoe UI, Calibri, Arial, sans-serif;
+  margin: 0; padding: 24px;
+  background: #f5f7fa; color: #222831;
+}
+
+header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+h1 { margin: 0; font-size: 22px; color: var(--navy); }
+
+.env-badge {
+  display: inline-block; padding: 4px 12px; border-radius: 12px;
+  font-weight: bold; font-size: 13px; color: white; background: #888;
+}
+.env-badge.env-dev  { background: var(--dev); }
+.env-badge.env-qa   { background: var(--qa); }
+.env-badge.env-uat  { background: var(--uat); }
+.env-badge.env-prod { background: var(--prod); }
+
+.controls { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+button {
+  padding: 8px 16px; border: none; border-radius: 6px;
+  background: var(--navy); color: white; cursor: pointer; font-size: 14px;
+}
+button:disabled { background: #aab4c0; cursor: not-allowed; }
+
+.chart-wrap { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.legend p { font-size: 13px; color: #444; margin: 6px 0; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.dot-raw { background: var(--raw); }
+.dot-processed { background: var(--processed); }
+
+/* Toast / notification styles for monitor updates */
+.toast-container {
+  position: fixed;
+  right: 24px;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+}
+.toast {
+  min-width: 260px;
+  max-width: 360px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  color: white;
+  font-size: 13px;
+  opacity: 0.98;
+}
+.toast.info { background: #2e7d32; }
+.toast.warn { background: #b71c1c; }
+.toast .title { font-weight: bold; margin-bottom: 6px; }
+.toast .body { font-size: 12px; line-height: 1.2; white-space: pre-wrap; }

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>StockPipeline — Simulated Stock Feed</title>
+  <link rel="stylesheet" href="site.css" />
+</head>
+<body>
+  <header>
+    <h1>StockPipeline</h1>
+    <span id="env-badge" class="env-badge">…</span>
+  </header>
+
+  <section class="controls">
+    <button id="startButton">Start feed</button>
+    <button id="stopButton" disabled>Stop feed</button>
+    <span id="status">Not connected</span>
+  </section>
+
+  <section class="chart-wrap">
+    <canvas id="stockChart" height="110"></canvas>
+  </section>
+
+  <section class="legend">
+    <p><span class="dot dot-raw"></span> Raw — generated in the browser, simulating live stock ticks.</p>
+    <p><span class="dot dot-processed"></span> Processed — the same tick, sent through the backend's RabbitMQ queue and returned with a constant added.</p>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8/dist/browser/signalr.min.js"></script>
+  <script src="site.js"></script>
+  <div class="toast-container" id="monitorToastContainer" aria-live="polite" aria-atomic="true"></div>
+  <script>
+    // Monitor UI: non-blocking toast notifications when monitor updates arrive.
+    window.addEventListener('load', function () {
+      try {
+        const connection = new signalR.HubConnectionBuilder()
+          .withUrl('/hubs/stock')
+          .withAutomaticReconnect()
+          .build();
+
+        function makeToast(title, body, type = 'info', timeout = 6000) {
+          const container = document.getElementById('monitorToastContainer');
+          if (!container) return;
+          const el = document.createElement('div');
+          el.className = 'toast ' + (type === 'warn' ? 'warn' : 'info');
+          const t = document.createElement('div');
+          t.className = 'title';
+          t.textContent = title;
+          const b = document.createElement('div');
+          b.className = 'body';
+          b.textContent = body;
+          el.appendChild(t);
+          el.appendChild(b);
+          container.appendChild(el);
+
+          // Auto-remove
+          setTimeout(() => {
+            el.style.transition = 'opacity 300ms ease, transform 300ms ease';
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(-8px)';
+            setTimeout(() => container.removeChild(el), 320);
+          }, timeout);
+        }
+
+        let lastState = null;
+
+        function handleMonitorPayload(payload) {
+          try {
+            const key = `${payload.DockerAvailable}|${payload.RabbitMqReachable}|${payload.ContainerId ?? ''}`;
+            if (key === lastState) return; // avoid duplicate toasts
+            lastState = key;
+
+            if (!payload.DockerAvailable) {
+              makeToast('Docker not available', 'Docker CLI not accessible from the app process. Install Docker and ensure the app can run `docker ps`.', 'warn');
+              return;
+            }
+
+            if (!payload.RabbitMqReachable) {
+              const body = `RabbitMQ is not reachable.\nContainer: ${payload.ContainerName ?? 'n/a'} (${payload.ContainerId ?? 'n/a'})\nImage: ${payload.ContainerImage ?? 'n/a'}\nStatus: ${payload.ContainerStatus ?? 'n/a'}`;
+              makeToast('RabbitMQ disconnected', body, 'warn');
+            }
+            else {
+              const body = `RabbitMQ is reachable.\nContainer: ${payload.ContainerName ?? 'n/a'} (${payload.ContainerId ?? 'n/a'})\nImage: ${payload.ContainerImage ?? 'n/a'}\nStatus: ${payload.ContainerStatus ?? 'n/a'}`;
+              makeToast('RabbitMQ connected', body, 'info');
+            }
+          }
+          catch (ex) { console.error('Error handling monitor payload', ex); }
+        }
+
+        connection.on('ReceiveMonitorUpdate', handleMonitorPayload);
+
+        connection.start()
+          .then(function () {
+            console.log('SignalR connected to /hubs/stock');
+            // Fetch initial state in case monitor updated before client connected
+            fetch('/api/monitor/status')
+              .then(r => {
+                if (!r.ok) return null;
+                return r.json();
+              })
+              .then(payload => {
+                if (payload) handleMonitorPayload(payload);
+              })
+              .catch(err => console.error('Failed to fetch initial monitor state:', err));
+          })
+          .catch(function (err) { console.error('SignalR connection failed:', err); });
+      }
+      catch (ex) {
+        console.error('Monitor UI failed to initialize', ex);
+      }
+    });
+  </script>
+</body>
+</html>
