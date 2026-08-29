@@ -21,6 +21,21 @@ builder.Services.AddSingleton<StockPipeline.Web.Monitoring.MonitorStateStore>();
 
 var app = builder.Build();
 
+// Log the effective RabbitMQ configuration at startup so it's easy to
+// verify which settings were loaded for the current environment.
+{
+    var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("StartupConfig");
+    try
+    {
+        var opts = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<StockPipeline.Web.Messaging.RabbitMqOptions>>().Value;
+        logger.LogInformation("RabbitMQ config loaded: Host={Host} Port={Port} Queue={Queue} EnvLabel={Label} UseTls={UseTls}", opts.HostName, opts.Port, opts.QueueName, opts.EnvironmentLabel, opts.UseTls);
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Failed to read RabbitMqOptions from configuration");
+    }
+}
+
 app.UseDefaultFiles();  // serves wwwroot/index.html at "/"
 app.UseStaticFiles();   // serves site.css / site.js / build-info.json from wwwroot
 
