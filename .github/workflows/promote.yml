@@ -1,0 +1,80 @@
+name: Promote (UAT / PROD)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Environment to promote into'
+        required: true
+        type: choice
+        options: [UAT, PROD]
+      source_tag:
+        description: 'Release tag to promote (e.g. build-a1b2c3d)'
+        required: true
+        type: string
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      match: ${{ steps.compare.outputs.match }}
+    steps:
+      - name: Determine which environment we're promoting FROM
+        id: source
+        run: |
+          if [ "${{ inputs.target }}" = "UAT" ]; then
+            echo "url=${{ vars.QA_APP_URL }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${{ vars.UAT_APP_URL }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compare the live build against the one being promoted
+        id: compare
+        run: |
+          LIVE_SHA=$(curl -s "${{ steps.source.outputs.url }}/build-info.json" | jq -r .commitSha)
+          RELEASE_SHA_PREFIX=$(echo "${{ inputs.source_tag }}" | sed 's/^build-//')
+          echo "Live commit on source environment: $LIVE_SHA"
+          echo "Short SHA encoded in the tag being promoted: $RELEASE_SHA_PREFIX"
+          if [[ "$LIVE_SHA" == "$RELEASE_SHA_PREFIX"* ]]; then
+            echo "match=true" >> "$GITHUB_OUTPUT"
+            echo "### :white_check_mark: Build check passed — promoting to ${{ inputs.target }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "match=false" >> "$GITHUB_OUTPUT"
+            echo "### :x: Build mismatch — source environment is not running tag ${{ inputs.source_tag }}" >> "$GITHUB_STEP_SUMMARY"
+            echo "Live commit: $LIVE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Fail if mismatched
+        if: steps.compare.outputs.match != 'true'
+        run: |
+          echo "::error::Build mismatch — refusing to promote to ${{ inputs.target }}"
+          exit 1
+
+  promote:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    steps:
+      - name: Download the release being promoted
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download ${{ inputs.source_tag }} --pattern '*.zip' --output stockpipeline.zip
+
+      - name: Unzip
+        run: unzip stockpipeline.zip -d publish
+
+      - name: Deploy to UAT
+        if: inputs.target == 'UAT'
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME_UAT }}
+          publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE_UAT }}
+          package: publish
+
+      - name: Deploy to PROD
+        if: inputs.target == 'PROD'
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME_PROD }}
+          publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE_PROD }}
+          package: publish

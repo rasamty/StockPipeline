@@ -1,0 +1,105 @@
+name: CI/CD - DEV and QA
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: write   # needed to publish GitHub Releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.sha.outputs.short_sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore StockPipeline.sln
+
+      - name: Build
+        run: dotnet build StockPipeline.sln --configuration Release --no-restore
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish web project
+        run: dotnet publish src/StockPipeline.Web/StockPipeline.Web.csproj --configuration Release --no-build --output publish
+
+      - name: Stamp build-info.json
+        run: |
+          cat > publish/wwwroot/build-info.json <<EOF
+          { "commitSha": "${{ github.sha }}", "builtAtUtc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)" }
+          EOF
+
+      - name: Zip publish output
+        run: cd publish && zip -r ../stockpipeline-${{ steps.sha.outputs.short_sha }}.zip . && cd ..
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stockpipeline-build
+          path: stockpipeline-*.zip
+          retention-days: 14
+
+      - name: Publish GitHub Release (durable copy, for later promotion)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create build-${{ steps.sha.outputs.short_sha }}
+          stockpipeline-${{ steps.sha.outputs.short_sha }}.zip
+          --title "Build ${{ steps.sha.outputs.short_sha }}"
+          --prerelease
+          --notes "Automated build from ${{ github.sha }}"
+
+  deploy-dev:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: DEV
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: stockpipeline-build
+
+      - name: Unzip
+        run: unzip stockpipeline-*.zip -d publish
+
+      - uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME_DEV }}
+          publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE_DEV }}
+          package: publish
+
+  qa-gate-tests:
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Run automated tests (the DEV -> QA gate)
+        run: dotnet test tests/StockPipeline.Tests/StockPipeline.Tests.csproj --configuration Release
+
+  deploy-qa:
+    needs: qa-gate-tests
+    runs-on: ubuntu-latest
+    environment: QA
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: stockpipeline-build
+
+      - name: Unzip
+        run: unzip stockpipeline-*.zip -d publish
+
+      - uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME_QA }}
+          publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE_QA }}
+          package: publish
